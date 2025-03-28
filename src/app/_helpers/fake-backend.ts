@@ -1,159 +1,223 @@
 import { Injectable } from '@angular/core';
-import {HttpRequest, HttpResponse, HttpHandler, HttpEvent, HttpInterceptor, HTTP_INTERCEPTORS} from '@angular/common/http';
+import { HttpRequest, HttpResponse, HttpHandler, HttpEvent, HttpInterceptor, HTTP_INTERCEPTORS } from '@angular/common/http';
 import { Observable, of, throwError } from 'rxjs';
 import { delay, materialize, dematerialize } from 'rxjs/operators';
 
-import { AlertService } from '@app/_services';
-import { Role } from '@app/_models';
+import { AlertService } from '../_services/alert.service';
+import { Role } from '../_models';
 
 // array in local storage for accounts
 const accountsKey = 'angular-10-crud-with-authentication-accounts';
-let accounts = JSON.parse(localStorage.getItem(accountsKey)) || [];
+let accounts: any[] = JSON.parse(localStorage.getItem(accountsKey) || '[]');
 
 @Injectable()
 export class FakeBackendInterceptor implements HttpInterceptor {
-    constructor(private alertService: AlertService) {} 
+    constructor(private alertService: AlertService) {}
 
     intercept(request: HttpRequest<any>, next: HttpHandler): Observable<HttpEvent<any>> {
         const { url, method, headers, body } = request;
         const alertService = this.alertService;
 
         return handleRoute();
+
+        function handleRoute() {
+            switch (true) {
+                case url.endsWith('/accounts/authenticate') && method === 'POST':
+                    return authenticate();
+                case url.endsWith('/accounts/refresh-token') && method === 'POST':
+                    return refreshToken();
+                case url.endsWith('/accounts/revoke-token') && method === 'POST':
+                    return revokeToken();
+                case url.endsWith('/accounts/register') && method === 'POST':
+                    return register();
+                case url.endsWith('/accounts/verify-email') && method === 'POST':
+                    return verifyEmail();
+                case url.endsWith('/accounts/forgot-password') && method === 'POST':
+                    return forgotPassword();
+                case url.endsWith('/accounts/validate-reset-token') && method === 'POST':
+                    return validateResetToken();
+                case url.endsWith('/accounts/reset-password') && method === 'POST':
+                    return resetPassword();
+                case url.endsWith('/accounts') && method === 'GET':
+                    return getAccounts();
+                case url.match(/\/accounts\/\d+$/) && method === 'GET':
+                    return getAccountById();
+                case url.endsWith('/accounts') && method === 'POST':
+                    return createAccount();
+                case url.match(/\/accounts\/\d+$/) && method === 'PUT':
+                    return updateAccount();
+                case url.match(/\/accounts\/\d+$/) && method === 'DELETE':
+                    return deleteAccount();
+                default:
+                    // pass through any requests not handled above
+                    return next.handle(request);
+            }
+        }
+
+        // helper functions
+
+        function ok(body?: any) {
+            return of(new HttpResponse({ status: 200, body }))
+                .pipe(delay(500)); // delay observable to simulate server api call
+        }
+
+        function error(message: string) {
+            return throwError({ error: { message } })
+                .pipe(materialize(), delay(500), dematerialize());
+        }
+
+        function unauthorized() {
+            return throwError({ status: 401, error: { message: 'Unauthorized' } })
+                .pipe(materialize(), delay(500), dematerialize());
+        }
+
+        function basicDetails(account: any) {
+            const { id, title, firstName, lastName, email, role, isVerified } = account;
+            return { id, title, firstName, lastName, email, role, isVerified };
+        }
+
+function isAuthenticated() {
+    // Get authorization header from request
+    const authHeader = request.headers.get('Authorization');
+    
+    // If no header, not authenticated
+    if (!authHeader) return false;
+    
+    // Extract token (handle case where header might not be "Bearer ...")
+    const token = authHeader.split(' ')[1];
+    
+    // Get the current user's token from accounts
+    const account = accounts.find(acc => 
+        acc.refreshTokens.some((t: any) => 
+            headers.get('Authorization') === `Bearer ${t.token}`
+        )
+    );
+    
+    return !!account; // returns true if account found, false otherwise
 }
 
-    function handleRoute() {
-        switch (true) {
-            case url.endsWith('/accounts/authenticate') && method === 'POST':
-                return authenticate();
-            case url.endsWith('/accounts/refresh-token') && method === 'POST':
-                return refreshToken();
-            case url.endsWith('/accounts/revoke-token') && method === 'POST':
-                return revokeToken();
-            case url.endsWith('/accounts/register') && method === 'POST':
-                return register();
-            case url.endsWith('/accounts/verify-email') && method === 'POST':
-                return verifyEmail();
-            case url.endsWith('/accounts/forgot-password') && method === 'POST':
-                return forgotPassword();
-            case url.endsWith('/accounts/validate-reset-token') && method === 'POST':
-                return validateResetToken();
-            case rul.endsWith('/accounts/reset-password') && method === 'POST':
-                return resetPassword();
-            case url.endsWith('/accounts') && method === 'GET':
-                return getAccounts();
-            case url.match(/\/accounts\/\d+$/) && method === 'GET':
-                return getAccountById();
-            case url.endsWith('/accounts') && method === 'POST':
-                return createAccount();
-            case url.match(/\/accounts\/\d+$/) && method === 'PUT':
-                return updateAccount();
-            case url.match(/\/accounts\/\d+$/) && method === 'DELETE':
-                return deleteAccount();
-            default:
-
-            // pass through any requests not handled above
-                return next.handle(request);
+        function getRefreshToken() {
+            return body.refreshToken;
         }
-    }
 
-    // route functions
+        function generateJwtToken(account: any) {
+            // create token that expires in 15 minutes
+            const tokenPayload = { 
+                exp: Math.round(new Date(Date.now() + 15*60*1000).getTime() / 1000),
+                id: account.id 
+            };
+            return `fake-jwt-token.${btoa(JSON.stringify(tokenPayload))}`;
+        }
 
-    function authenticate() {
-        const { email, password } = body;
-        const account = accounts.find(x => x.email === email && x.password === password && x.isVerified);
+        function generateRefreshToken() {
+            const token = new Date().getTime().toString();
+            // add token expiry that expires in 7 days
+            const expires = new Date(Date.now() + 7*24*60*60*1000).toISOString();
+            return { token, expires };
+        }
 
-        if (!account) return error('Email or password is incorrect');
+        function newAccountId() {
+            return accounts.length ? Math.max(...accounts.map(x => x.id)) + 1 : 1;
+        }
 
-        // add refresh token to account
-        account.refreshTokens.push(generateRefreshToken());
-        localStorage.setItem(accountsKey, JSON.stringify(accounts));
+        // route functions
 
-        return ok({
-            ...basicDetails(account),
-            jwtToken: generateJwtToken(account)
-        });
-    }
+        function authenticate() {
+            const { email, password } = body;
+            const account = accounts.find(x => x.email === email && x.password === password && x.isVerified);
 
-    function refreshToken() {
-        const refreshToken = getRefreshToken();
+            if (!account) return error('Email or password is incorrect');
 
-        if (!refreshToken) return unauthorized();
+            // add refresh token to account
+            account.refreshTokens.push(generateRefreshToken());
+            localStorage.setItem(accountsKey, JSON.stringify(accounts));
 
-        const account = accounts.find(x => x.refreshTokens.includes(refreshToken));
+            return ok({
+                ...basicDetails(account),
+                jwtToken: generateJwtToken(account)
+            });
+        }
 
-        if (!account) return unauthorized();
+        function refreshToken() {
+            const refreshToken = getRefreshToken();
 
-        // replace old refresh token with a new one and save
-        account.refreshTokens = account.refreshTokens.filter(x => x !== refreshToken);
-        account.refreshTokens.push(generateRefreshToken());
-        localStorage.setItem(accountsKey, JSON.stringify(accounts));
+            if (!refreshToken) return unauthorized();
 
-        return ok({
-            ...basicDetails(account),
-            jwtToken: generateJwtToken(account)
-        });
-    }
+            const account = accounts.find(x => x.refreshTokens.some((t: any) => t.token === refreshToken));
 
-    function revokeToken() {
-        if (!isAuthenticated()) return unauthorized();
+            if (!account) return unauthorized();
 
-        const refreshToken = getRefreshToken();
-        const account = accounts.find(x => x.refreshTokens.includes(refreshToken));
+            // replace old refresh token with a new one and save
+            account.refreshTokens = account.refreshTokens.filter((x: any) => x.token !== refreshToken);
+            account.refreshTokens.push(generateRefreshToken());
+            localStorage.setItem(accountsKey, JSON.stringify(accounts));
 
-        // revoke token and save
-        account.refreshTokens = account.refreshTokens.filter(x => x !== refreshToken);
-        localStorage.setItem(accountsKey, JSON.stringify(accounts));
+            return ok({
+                ...basicDetails(account),
+                jwtToken: generateJwtToken(account)
+            });
+        }
 
-        return ok();
-    }
+        function revokeToken() {
+            if (!isAuthenticated()) return unauthorized();
 
-    function register() {
-        const account = body;
-        
-        if (accounts.find(x => x.email === account.email)) {
-            // display email already registered "alert"
-            setTimeout(() => {
-                AlertService.info(`
-                    <h4>Email Already Registered</h4>
-                    <p>Your email ${account.email} is already registered.</p>
-                    <p>If you don't know your password, please visit the <a href="${location.origin}/account/fogot-password">forgot password</a> page.</p>
-                    <div><strong>NOTE:</strong> The fake backend displayed this "email" so you can test without api. A real backend would send a real email.</div
-                `, { atuoClose: false });
+            const refreshToken = getRefreshToken();
+            const account = accounts.find(x => x.refreshTokens.some((t: any) => t.token === refreshToken));
+
+            // revoke token and save
+            account.refreshTokens = account.refreshTokens.filter((x: any) => x.token !== refreshToken);
+            localStorage.setItem(accountsKey, JSON.stringify(accounts));
+
+            return ok();
+        }
+
+        function register() {
+            const account = body;
+            
+            if (accounts.find(x => x.email === account.email)) {
+                // display email already registered "alert"
+                setTimeout(() => {
+                    alertService.info(`
+                        <h4>Email Already Registered</h4>
+                        <p>Your email ${account.email} is already registered.</p>
+                        <p>If you don't know your password, please visit the <a href="${location.origin}/account/forgot-password">forgot password</a> page.</p>
+                        <div><strong>NOTE:</strong> The fake backend displayed this "email" so you can test without api. A real backend would send a real email.</div>
+                    `, { autoClose: false });
                 }, 1000);
 
                 // always return ok() response to prevent email enumeration
                 return ok();
-                  }
+            }
 
-        // assign account id and a few other properties then save
-                  account.id = newAccountId();
-                  if {accounts.id === 1} {
-                    // first registered account is an admin
-                    account.role = Role.Admin;
-                  } else {
-                    account.role = Role.User;
-                  }
-                  account.dateCreated = new Date().toISOString();
-                  account.verificationToken = new Date().getTime().toString();
-                  account.isVerified = false;
-                  account.refreshTokens = [];
-                  delete account.confirmPassword;
-                  accounts.push(account);
-                  localStorage.setItem(accountsKey, JSON.stringify(accounts));
+            // assign account id and a few other properties then save
+            account.id = newAccountId();
+            if (account.id === 1) {
+                // first registered account is an admin
+                account.role = Role.Admin;
+            } else {
+                account.role = Role.User;
+            }
+            account.dateCreated = new Date().toISOString();
+            account.verificationToken = new Date().getTime().toString();
+            account.isVerified = false;
+            account.refreshTokens = [];
+            delete account.confirmPassword;
+            accounts.push(account);
+            localStorage.setItem(accountsKey, JSON.stringify(accounts));
 
-                  //display email verification "alert"
-                  setTimeout(() => {
-                    const verifyUrl = `${location.origin}/account/verify-email?token=${account.verificationToken}`;
-                    alertService.info(`
-                        <h4>Verification Email</h4>
-                        <p>Thanks for registering!</p>
-                        <p>Please click the below link to verify your email address:</p>
-                        <p><a href="${verifyUrl}">${verifyUrl}</a></p>
-                        <div><strong>NOTE:</strong> The fake backend displayed this"email" so you can test without an api. A real backend would send a real email.</div>
-                        `, { autoClose: false });
-                  }, 1000);
+            // display email verification "alert"
+            setTimeout(() => {
+                const verifyUrl = `${location.origin}/account/verify-email?token=${account.verificationToken}`;
+                alertService.info(`
+                    <h4>Verification Email</h4>
+                    <p>Thanks for registering!</p>
+                    <p>Please click the below link to verify your email address:</p>
+                    <p><a href="${verifyUrl}">${verifyUrl}</a></p>
+                    <div><strong>NOTE:</strong> The fake backend displayed this "email" so you can test without an api. A real backend would send a real email.</div>
+                `, { autoClose: false });
+            }, 1000);
 
-                  return ok();
+            return ok();
         }
 
         function verifyEmail() {
@@ -170,21 +234,123 @@ export class FakeBackendInterceptor implements HttpInterceptor {
         }
 
         function forgotPassword() {
-            const {email} = body;
+            const { email } = body;
             const account = accounts.find(x => x.email === email);
 
-            //always return ok() response to prevent email enumeration
+            // always return ok() response to prevent email enumeration
             if (!account) return ok();
 
-            //create rest token that expires after 24 hours
+            // create reset token that expires after 24 hours
             account.resetToken = new Date().getTime().toString();
             account.resetTokenExpires = new Date(Date.now() + 24*60*60*1000).toISOString();
             localStorage.setItem(accountsKey, JSON.stringify(accounts));
 
-            //display password reset email in alert
-            
+            // display password reset email in alert
+            setTimeout(() => {
+                const resetUrl = `${location.origin}/account/reset-password?token=${account.resetToken}`;
+                alertService.info(`
+                    <h4>Reset Password Email</h4>
+                    <p>Please click the below link to reset your password:</p>
+                    <p><a href="${resetUrl}">${resetUrl}</a></p>
+                    <div><strong>NOTE:</strong> The fake backend displayed this "email" so you can test without an api. A real backend would send a real email.</div>
+                `, { autoClose: false });
+            }, 1000);
+
+            return ok();
         }
 
+        function validateResetToken() {
+            const { token } = body;
+            const account = accounts.find(x => 
+                x.resetToken === token && 
+                new Date(x.resetTokenExpires) > new Date()
+            );
+
+            if (!account) return error('Invalid token');
+
+            return ok();
+        }
+
+        function resetPassword() {
+            const { token, password } = body;
+            const account = accounts.find(x => 
+                x.resetToken === token && 
+                new Date(x.resetTokenExpires) > new Date()
+            );
+
+            if (!account) return error('Invalid token');
+
+            // update password and remove reset token
+            account.password = password;
+            account.isVerified = true;
+            delete account.resetToken;
+            delete account.resetTokenExpires;
+            localStorage.setItem(accountsKey, JSON.stringify(accounts));
+
+            return ok();
+        }
+
+        function getAccounts() {
+            if (!isAuthenticated()) return unauthorized();
+            return ok(accounts.map(x => basicDetails(x)));
+        }
+
+        function getAccountById() {
+            if (!isAuthenticated()) return unauthorized();
+
+            const account = accounts.find(x => x.id === idFromUrl());
+            return ok(basicDetails(account));
+        }
+
+        function createAccount() {
+            if (!isAuthenticated()) return unauthorized();
+
+            const account = body;
+            account.id = newAccountId();
+            account.dateCreated = new Date().toISOString();
+            account.isVerified = true;
+            accounts.push(account);
+            localStorage.setItem(accountsKey, JSON.stringify(accounts));
+
+            return ok(basicDetails(account));
+        }
+
+        function updateAccount() {
+            if (!isAuthenticated()) return unauthorized();
+
+            const params = body;
+            const account = accounts.find(x => x.id === idFromUrl());
+
+            // only update password if entered
+            if (!params.password) {
+                delete params.password;
+            }
+
+            // update and save
+            Object.assign(account, params);
+            localStorage.setItem(accountsKey, JSON.stringify(accounts));
+
+            return ok(basicDetails(account));
+        }
+
+        function deleteAccount() {
+            if (!isAuthenticated()) return unauthorized();
+
+            accounts = accounts.filter(x => x.id !== idFromUrl());
+            localStorage.setItem(accountsKey, JSON.stringify(accounts));
+            return ok();
+        }
+
+        function idFromUrl() {
+            const urlParts = url.split('/');
+            return parseInt(urlParts[urlParts.length - 1]);
+        }
     }
+}
 
-
+export const fakeBackendProvider = {
+    // use fake backend in place of Http service for backend-less development
+    provide: HTTP_INTERCEPTORS,
+    useClass: FakeBackendInterceptor,
+    multi: true
+};
